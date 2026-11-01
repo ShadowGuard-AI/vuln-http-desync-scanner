@@ -65,6 +65,10 @@ def raw_exchange(host, port, use_tls, insecure, raw_bytes, timeout):
     return status, header_names, body, elapsed
 
 
+# Reads are capped at 64 KB and there is no chunked decoding here. A
+# chunked response is only finished when the server closes or the socket
+# times out, which inflates its elapsed time, so timing comparisons
+# against a Content-Length baseline carry that bias.
 def _read_response(sock):
     chunks = []
     total = 0
@@ -72,6 +76,8 @@ def _read_response(sock):
         try:
             chunk = sock.recv(4096)
         except socket.timeout:
+            # A timeout mid response is treated as the end of it. Whatever
+            # partial bytes arrived still get parsed for a status below.
             break
         if not chunk:
             break
@@ -152,6 +158,9 @@ def test_http_desync(url, timeout, verbose, insecure=False):
         return "inconclusive"
     use_tls = scheme == "https"
     port = parsed_url.port or (443 if use_tls else 80)
+    # The Host header is the raw netloc, port included when the URL has
+    # one. I do not rebuild it from host and port, so what the operator
+    # typed is what the server sees.
     host_header = parsed_url.netloc
     path = parsed_url.path or "/"
     if parsed_url.query:
@@ -160,6 +169,9 @@ def test_http_desync(url, timeout, verbose, insecure=False):
     if use_tls and insecure:
         logging.warning("TLS certificate verification disabled by the --insecure flag.")
 
+    # Each of the three exchanges opens a fresh connection. Nothing on my
+    # side carries over between them, so a changed follow up can only come
+    # from state the server kept, which is exactly the desync signal.
     try:
         baseline_status, baseline_headers, baseline_body, baseline_time = raw_exchange(
             host, port, use_tls, insecure, build_baseline_request(host_header, path), timeout)
