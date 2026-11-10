@@ -157,7 +157,14 @@ def test_http_desync(url, timeout, verbose, insecure=False):
         logging.error("Invalid URL: Scheme must be http or https.")
         return "inconclusive"
     use_tls = scheme == "https"
-    port = parsed_url.port or (443 if use_tls else 80)
+    # urlparse raises ValueError for a port that is not a number or is
+    # out of range. That is an invalid URL, not a crash: report it the
+    # same way as the scheme and hostname failures above.
+    try:
+        port = parsed_url.port or (443 if use_tls else 80)
+    except ValueError:
+        logging.error("Invalid URL: Port is invalid.")
+        return "inconclusive"
     # The Host header is the raw netloc, port included when the URL has
     # one. I do not rebuild it from host and port, so what the operator
     # typed is what the server sees.
